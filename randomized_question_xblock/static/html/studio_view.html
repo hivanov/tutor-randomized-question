@@ -1,0 +1,139 @@
+<div class="randomized-question-studio">
+    <div class="studio-header">
+        <h2>Randomized Question Authoring</h2>
+        <p class="subtitle">Configure option pools (C, I), sampling counts (t, c), and custom grading piecewise cases g(x).</p>
+    </div>
+
+    <div class="studio-section">
+        <h3>General Settings</h3>
+        <div class="form-group">
+            <label for="rq-display-name">Display Name</label>
+            <input type="text" id="rq-display-name" class="form-control" />
+        </div>
+        <div class="form-group">
+            <label for="rq-prompt">Question Prompt (Markdown / HTML supported)</label>
+            <textarea id="rq-prompt" class="form-control" rows="3"></textarea>
+        </div>
+    </div>
+
+    <div class="studio-section">
+        <h3>Answer Pools Configuration</h3>
+        <div class="pools-grid">
+            <div class="pool-box correct-pool-box">
+                <div class="pool-header">
+                    <h4>Correct Answers Pool (C) <span class="badge pool-c-count">0 items</span></h4>
+                    <button type="button" class="btn btn-sm btn-outline-success btn-add-c">+ Add Correct Answer</button>
+                </div>
+                <div class="pool-items-list list-pool-c">
+                    <!-- Dynamic rows for C -->
+                </div>
+            </div>
+
+            <div class="pool-box incorrect-pool-box">
+                <div class="pool-header">
+                    <h4>Incorrect Answers Pool (I) <span class="badge pool-i-count">0 items</span></h4>
+                    <button type="button" class="btn btn-sm btn-outline-danger btn-add-i">+ Add Incorrect Answer</button>
+                </div>
+                <div class="pool-items-list list-pool-i">
+                    <!-- Dynamic rows for I -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="studio-section">
+        <h3>Subset Sampling Parameters</h3>
+        <div class="row-params">
+            <div class="form-group param-col">
+                <label for="rq-param-t">Total Answers to Appear (t)</label>
+                <input type="number" id="rq-param-t" class="form-control" min="2" />
+                <small class="form-text text-muted constraint-t-note">Constraint: 2 &le; t &le; |C| + |I|</small>
+            </div>
+            <div class="form-group param-col">
+                <label for="rq-param-c">Correct Answers to Appear (c)</label>
+                <input type="number" id="rq-param-c" class="form-control" min="1" />
+                <small class="form-text text-muted constraint-c-note">Constraint: 1 &le; c &le; |C| and (t - c) &le; |I|</small>
+            </div>
+        </div>
+        <div id="pool-validation-banner" class="alert alert-danger" style="display: none;"></div>
+    </div>
+
+    <div class="studio-section">
+        <h3>Grading Function g(x) & Case Definitions</h3>
+        <p class="section-help">Define custom piecewise grading cases depending on the number of correctly guessed answers (x) and wrong selections (w).</p>
+
+        <div class="failure-rules-box">
+            <div class="checkbox-group">
+                <label>
+                    <input type="checkbox" id="rq-fail-wrong" />
+                    <strong>Default Fail Rule 1:</strong> Fail (g(x) = 0) when at least one wrong answer was selected (w &gt; 0).
+                </label>
+            </div>
+            <div class="checkbox-group">
+                <label>
+                    <input type="checkbox" id="rq-fail-incomplete" />
+                    <strong>Default Fail Rule 2:</strong> Fail (g(x) = 0) when not all correct answers were selected (x &lt; c).
+                </label>
+            </div>
+        </div>
+
+        <div class="cases-builder">
+            <div class="cases-header">
+                <h4>Piecewise Grading Cases</h4>
+                <button type="button" class="btn btn-sm btn-primary btn-add-case">+ Add Grading Case</button>
+            </div>
+
+            <table class="cases-table">
+                <thead>
+                    <tr>
+                        <th style="width: 25%;">Case Description</th>
+                        <th style="width: 25%;">Condition Type</th>
+                        <th style="width: 15%;">Target Value</th>
+                        <th style="width: 15%;">Score %</th>
+                        <th style="width: 15%;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="cases-table-body">
+                    <!-- Dynamic case rows -->
+                </tbody>
+            </table>
+
+            <div class="form-group fallback-score-group">
+                <label for="rq-fallback-score">Default Fallback Score Fraction (when no case matches)</label>
+                <input type="number" id="rq-fallback-score" class="form-control" min="0" max="1" step="0.05" />
+            </div>
+        </div>
+    </div>
+
+    <div class="studio-section">
+        <h3>Grading Controls & Explanations</h3>
+        <div class="row-params">
+            <div class="form-group param-col">
+                <label for="rq-weight">Problem Weight (Points)</label>
+                <input type="number" id="rq-weight" class="form-control" min="0" step="0.5" />
+            </div>
+            <div class="form-group param-col">
+                <label for="rq-max-attempts">Maximum Attempts</label>
+                <input type="number" id="rq-max-attempts" class="form-control" min="1" />
+            </div>
+            <div class="form-group param-col">
+                <label for="rq-show-correctness">Show Correctness</label>
+                <select id="rq-show-correctness" class="form-control">
+                    <option value="always">Always</option>
+                    <option value="past_due">Past Due</option>
+                    <option value="never">Never</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="rq-explanation">Post-Submission Explanation</label>
+            <textarea id="rq-explanation" class="form-control" rows="2"></textarea>
+        </div>
+    </div>
+
+    <div class="studio-actions">
+        <button type="button" class="btn btn-primary btn-save">Save Settings</button>
+        <button type="button" class="btn btn-secondary btn-cancel">Cancel</button>
+        <span class="save-status"></span>
+    </div>
+</div>

@@ -1,0 +1,41 @@
+<div class="randomized-question-block" data-usage-id="{{ usage_id }}">
+    <div class="problem-header">
+        <h3 class="problem-title"></h3>
+        <div class="problem-meta">
+            <span class="badge attempts-badge"></span>
+            <span class="badge points-badge"></span>
+        </div>
+    </div>
+
+    <div class="problem-prompt"></div>
+
+    <div class="problem-instruction-note">
+        <small class="text-muted instruction-text"></small>
+    </div>
+
+    <form class="options-form" onsubmit="return false;">
+        <div class="options-container">
+            <!-- Dynamically populated choices -->
+        </div>
+
+        <div class="action-bar">
+            <button type="button" class="btn btn-primary btn-submit">Submit Answer</button>
+            <button type="button" class="btn btn-secondary btn-reset" style="display: none;">Try New Attempt</button>
+        </div>
+    </form>
+
+    <div class="feedback-container" style="display: none;">
+        <div class="alert feedback-alert" role="alert">
+            <div class="feedback-title"></div>
+            <div class="feedback-message"></div>
+            <div class="feedback-details"></div>
+        </div>
+    </div>
+
+    <div class="explanation-container" style="display: none;">
+        <div class="explanation-box">
+            <h4>Explanation:</h4>
+            <div class="explanation-content"></div>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tutor-randomized-question"
+version = "0.1.0"
+description = "Tutor plugin and Open edX XBlock for randomized multi-choice questions with piecewise case grading"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "Open edX Community" }]
+dependencies = [
+    "tutor>=15.0.0",
+    "xblock>=1.6.0",
+    "pydantic>=2.0.0",
+]
+
+[project.entry-points."tutor.plugin.v1"]
+randomized_question = "tutor_randomized_question.plugin"
+
+[project.entry-points."xblock.v1"]
+randomized_question = "randomized_question_xblock.xblock:RandomizedQuestionXBlock"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "xblock.*",
+    "web_fragments.*",
+    "webob.*",
+    "tutor.*",
+    "setuptools.*",
+]
+ignore_missing_imports = true
