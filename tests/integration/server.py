@@ -32,16 +32,34 @@ class ProblemState:
     def __init__(self) -> None:
         self.settings = StudioSettingsPayload(
             display_name="Distributed Systems & Concurrency Problem",
-            prompt="Select all true statements regarding distributed consensus and raft protocol:",
+            prompt="Select all true statements regarding distributed consensus and raft protocol (where $O(1)$ amortized replication holds):",
             correct_answers=[
-                "Raft ensures state machine safety across leader terms.",
-                "Log replication requires an acknowledgment from a strict majority (quorum).",
-                "Heartbeats prevent follower nodes from timing out and starting elections.",
+                {
+                    "text": "Raft ensures state machine safety across leader terms.",
+                    "explanation": "State machine safety ensures that if a server applies an entry at index $i$, no other server applies a different entry at $i$.",
+                },
+                {
+                    "text": "Log replication requires an acknowledgment from a strict majority (quorum $\\lfloor N/2 \\rfloor + 1$).",
+                    "explanation": "A log entry is committed once replicated on a strict majority of cluster nodes.",
+                },
+                {
+                    "text": "Heartbeats prevent follower nodes from timing out and starting elections.",
+                    "explanation": "Leaders periodically send empty `AppendEntries` RPCs as heartbeats to maintain authority.",
+                },
             ],
             incorrect_answers=[
-                "Two distinct leaders can be elected in the same term.",
-                "Followers can append uncommitted entries without leader coordination.",
-                "Raft requires all nodes in the cluster to be online to achieve consensus.",
+                {
+                    "text": "Two distinct leaders can be elected in the same term.",
+                    "explanation": "Election safety guarantees at most one leader can be elected in a given term.",
+                },
+                {
+                    "text": "Followers can append uncommitted entries without leader coordination.",
+                    "explanation": "Followers only append log entries sent by the leader via `AppendEntries` RPCs.",
+                },
+                {
+                    "text": "Raft requires all nodes in the cluster to be online to achieve consensus.",
+                    "explanation": "Raft only requires a majority quorum (e.g. 3 of 5 nodes) to maintain consensus.",
+                },
             ],
             total_options_count=4,
             correct_options_count=2,
@@ -68,7 +86,7 @@ class ProblemState:
             weight=10.0,
             max_attempts=2,
             show_correctness=ShowCorrectnessMode.ALWAYS,
-            explanation="Raft requires a strict majority quorum and guarantees leader election safety per term.",
+            explanation="Raft requires a strict majority quorum and guarantees leader election safety per term with $O(1)$ heartbeats.",
         )
         self.student_states: dict[str, dict[str, Any]] = {}
         self.submissions_log: list[dict[str, Any]] = []
@@ -172,8 +190,10 @@ class XBlockTestHandler(http.server.BaseHTTPRequestHandler):
 <head>
     <meta charset="utf-8">
     <title>Open edX Studio - Problem Authoring</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
     <link rel="stylesheet" href="/static/css/randomized_question_studio.css">
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="/static/js/randomized_question_studio.js"></script>
     <style>
         body {{ background: #f0f4f8; margin: 0; padding: 0; font-family: -apple-system, sans-serif; }}
@@ -213,7 +233,17 @@ class XBlockTestHandler(http.server.BaseHTTPRequestHandler):
             template = f.read()
 
         st = STATE.get_or_create_student_state(student_id)
-        client_options = [ClientOption(id=opt.id, text=opt.text).model_dump() for opt in st["options"]]
+        reveal = st["completed"] and STATE.settings.show_correctness == ShowCorrectnessMode.ALWAYS
+        selected_set = set(st["selected_ids"])
+        client_options = [
+            ClientOption(
+                id=opt.id,
+                text=opt.text,
+                explanation=opt.explanation if (reveal and opt.id in selected_set) else "",
+                is_correct=opt.is_correct if reveal else None,
+            ).model_dump()
+            for opt in st["options"]
+        ]
 
         init_data = {
             "display_name": STATE.settings.display_name,
@@ -229,9 +259,7 @@ class XBlockTestHandler(http.server.BaseHTTPRequestHandler):
             "completed": st["completed"],
             "last_feedback": st["last_feedback"],
             "show_correctness": STATE.settings.show_correctness.value,
-            "explanation": STATE.settings.explanation
-            if (st["completed"] and STATE.settings.show_correctness == ShowCorrectnessMode.ALWAYS)
-            else "",
+            "explanation": STATE.settings.explanation if reveal else "",
             "is_single_choice": (STATE.settings.correct_options_count == 1 and STATE.settings.total_options_count == 2),
         }
 
@@ -240,8 +268,10 @@ class XBlockTestHandler(http.server.BaseHTTPRequestHandler):
 <head>
     <meta charset="utf-8">
     <title>Open edX LMS - Student Evaluation</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
     <link rel="stylesheet" href="/static/css/randomized_question.css">
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="/static/js/randomized_question.js"></script>
     <style>
         body {{ background: #f8fafc; margin: 0; padding: 0; font-family: -apple-system, sans-serif; }}
@@ -429,9 +459,18 @@ class XBlockTestHandler(http.server.BaseHTTPRequestHandler):
             }
         )
 
-        show_expl = (
-            STATE.settings.explanation if (STATE.settings.show_correctness == ShowCorrectnessMode.ALWAYS) else ""
-        )
+        reveal = STATE.settings.show_correctness == ShowCorrectnessMode.ALWAYS
+        show_expl = STATE.settings.explanation if reveal else ""
+        selected_set = set(payload.selected_ids)
+        revealed_options = [
+            ClientOption(
+                id=opt.id,
+                text=opt.text,
+                explanation=opt.explanation if (reveal and opt.id in selected_set) else "",
+                is_correct=opt.is_correct if reveal else None,
+            )
+            for opt in st["options"]
+        ]
 
         resp = StudentSubmitResponse(
             success=True,
@@ -447,6 +486,7 @@ class XBlockTestHandler(http.server.BaseHTTPRequestHandler):
             max_attempts=STATE.settings.max_attempts,
             attempts_remaining=max(0, STATE.settings.max_attempts - st["attempts"]),
             explanation=show_expl,
+            options=revealed_options,
         )
         self._send_json(resp.model_dump())
 

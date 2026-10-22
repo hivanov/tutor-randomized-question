@@ -28,6 +28,7 @@ except ImportError:
 
 from .engine import CaseGradingEvaluator, PoolSampler, ValidationError
 from .models import (
+    AnswerChoice,
     ClientOption,
     GradingCase,
     Option,
@@ -39,6 +40,7 @@ from .models import (
     StudioSettingsPayload,
     StudioSubmitResponse,
     StudioViewContext,
+    normalize_answer_choice,
 )
 
 log = logging.getLogger(__name__)
@@ -88,9 +90,18 @@ class RandomizedQuestionXBlock(XBlock):
     correct_answers = XBlockList(
         display_name="Correct Answers Pool (C)",
         default=[
-            "Python supports multiple inheritance.",
-            "List comprehensions are faster than equivalent for-loops in standard CPython.",
-            "Tuples are immutable sequence types.",
+            {
+                "text": "Python supports multiple inheritance.",
+                "explanation": "Python supports multiple inheritance via C3 linearization (Method Resolution Order).",
+            },
+            {
+                "text": "List comprehensions are faster than equivalent for-loops in standard CPython.",
+                "explanation": "List comprehensions execute at C speed using the LIST_APPEND opcode without repeated Python function call overhead.",
+            },
+            {
+                "text": "Tuples are immutable sequence types.",
+                "explanation": "Once created, elements and length of a tuple cannot be changed.",
+            },
         ],
         scope=Scope.settings,
     )
@@ -98,10 +109,22 @@ class RandomizedQuestionXBlock(XBlock):
     incorrect_answers = XBlockList(
         display_name="Incorrect Answers Pool (I)",
         default=[
-            "Dictionaries in Python retain no insertion order.",
-            "A Python list is implemented as a doubly-linked list in memory.",
-            "Strings in Python are mutable byte arrays.",
-            "Python does not support closures or first-class functions.",
+            {
+                "text": "Dictionaries in Python retain no insertion order.",
+                "explanation": "Dictionaries in Python have preserved insertion order since Python 3.7.",
+            },
+            {
+                "text": "A Python list is implemented as a doubly-linked list in memory.",
+                "explanation": "Python lists are variable-length array pointers (dynamic arrays), not linked lists.",
+            },
+            {
+                "text": "Strings in Python are mutable byte arrays.",
+                "explanation": "Strings (str) in Python are immutable unicode sequences; bytearray is mutable.",
+            },
+            {
+                "text": "Python does not support closures or first-class functions.",
+                "explanation": "Functions in Python are first-class objects and closures are fully supported.",
+            },
         ],
         scope=Scope.settings,
     )
@@ -259,9 +282,19 @@ class RandomizedQuestionXBlock(XBlock):
         Renders the student-facing LMS view using StudentViewContext Pydantic model.
         """
         options = self._ensure_sampled_options()
-        client_options = [ClientOption(id=opt.id, text=opt.text) for opt in options]
-
         mode = ShowCorrectnessMode(self.show_correctness)
+        reveal = self.completed and mode == ShowCorrectnessMode.ALWAYS
+        selected_set = set(list(self.selected_ids))
+        client_options = [
+            ClientOption(
+                id=opt.id,
+                text=opt.text,
+                explanation=opt.explanation if (reveal and opt.id in selected_set) else "",
+                is_correct=opt.is_correct if reveal else None,
+            )
+            for opt in options
+        ]
+
         context_model = StudentViewContext(
             display_name=self.display_name,
             prompt=self.prompt,
@@ -276,7 +309,7 @@ class RandomizedQuestionXBlock(XBlock):
             completed=self.completed,
             last_feedback=self.last_feedback,
             show_correctness=mode,
-            explanation=self.explanation if (self.completed and mode == ShowCorrectnessMode.ALWAYS) else "",
+            explanation=self.explanation if reveal else "",
             is_single_choice=(self.correct_options_count == 1 and self.total_options_count == 2),
         )
 
@@ -293,12 +326,14 @@ class RandomizedQuestionXBlock(XBlock):
         """
         parsed_cases = [GradingCase.model_validate(c) for c in self.grading_cases]
         mode = ShowCorrectnessMode(self.show_correctness)
+        parsed_correct = [normalize_answer_choice(c) for c in self.correct_answers]
+        parsed_incorrect = [normalize_answer_choice(i) for i in self.incorrect_answers]
 
         context_model = StudioViewContext(
             display_name=self.display_name,
             prompt=self.prompt,
-            correct_answers=list(self.correct_answers),
-            incorrect_answers=list(self.incorrect_answers),
+            correct_answers=parsed_correct,
+            incorrect_answers=parsed_incorrect,
             total_options_count=self.total_options_count,
             correct_options_count=self.correct_options_count,
             fail_on_any_wrong=self.fail_on_any_wrong,
@@ -328,8 +363,14 @@ class RandomizedQuestionXBlock(XBlock):
 
             self.display_name = payload.display_name
             self.prompt = payload.prompt
-            self.correct_answers = payload.correct_answers
-            self.incorrect_answers = payload.incorrect_answers
+            self.correct_answers = [
+                item.to_dict() if isinstance(item, AnswerChoice) else normalize_answer_choice(item).to_dict()
+                for item in payload.correct_answers
+            ]
+            self.incorrect_answers = [
+                item.to_dict() if isinstance(item, AnswerChoice) else normalize_answer_choice(item).to_dict()
+                for item in payload.incorrect_answers
+            ]
             self.total_options_count = payload.total_options_count
             self.correct_options_count = payload.correct_options_count
             self.fail_on_any_wrong = payload.fail_on_any_wrong
@@ -401,6 +442,17 @@ class RandomizedQuestionXBlock(XBlock):
                 except Exception as e:
                     log.warning(f"Could not publish grade event to LMS runtime: {e}")
 
+            reveal = self.show_correctness == ShowCorrectnessMode.ALWAYS.value
+            revealed_options = [
+                ClientOption(
+                    id=opt.id,
+                    text=opt.text,
+                    explanation=opt.explanation if (reveal and opt.id in selected_ids_set) else "",
+                    is_correct=opt.is_correct if reveal else None,
+                )
+                for opt in options
+            ]
+
             resp = StudentSubmitResponse(
                 success=True,
                 score=self.score * self.weight,
@@ -414,7 +466,8 @@ class RandomizedQuestionXBlock(XBlock):
                 attempts=self.attempts,
                 max_attempts=self.max_attempts,
                 attempts_remaining=max(0, self.max_attempts - self.attempts),
-                explanation=self.explanation if self.show_correctness == ShowCorrectnessMode.ALWAYS.value else "",
+                explanation=self.explanation if reveal else "",
+                options=revealed_options,
             )
             return resp.model_dump()
 

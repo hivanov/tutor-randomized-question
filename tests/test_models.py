@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError as PydanticValidationError
 
 from randomized_question_xblock.models import (
+    AnswerChoice,
     ClientOption,
     ConditionType,
     GradingCase,
@@ -16,15 +17,57 @@ from randomized_question_xblock.models import (
     StudioSettingsPayload,
     StudioSubmitResponse,
     StudioViewContext,
+    normalize_answer_choice,
 )
 
 
+def test_answer_choice_model():
+    choice = AnswerChoice(
+        text="  Merge sort is $O(n \\log n)$  ",
+        explanation="  Because recursion depth is $\\log n$ and merging takes linear time.  ",
+    )
+    assert choice.text == "Merge sort is $O(n \\log n)$"
+    assert choice.explanation == "Because recursion depth is $\\log n$ and merging takes linear time."
+    assert choice.to_dict() == {
+        "text": "Merge sort is $O(n \\log n)$",
+        "explanation": "Because recursion depth is $\\log n$ and merging takes linear time.",
+    }
+
+    # Empty text fails
+    with pytest.raises(PydanticValidationError):
+        AnswerChoice(text="   ")
+
+    # Normalization helper
+    norm_from_str = normalize_answer_choice("Simple string answer")
+    assert norm_from_str.text == "Simple string answer"
+    assert norm_from_str.explanation == ""
+
+    norm_from_dict = normalize_answer_choice({"text": "Dict text", "explanation": "Dict expl"})
+    assert norm_from_dict.text == "Dict text"
+    assert norm_from_dict.explanation == "Dict expl"
+
+    norm_from_model = normalize_answer_choice(choice)
+    assert norm_from_model == choice
+
+
 def test_option_model_serialization_and_validation():
-    opt = Option(id="opt_1", text="Sample answer", is_correct=True)
+    opt = Option(
+        id="opt_1",
+        text="Sample answer",
+        explanation="Sample explanation why valid",
+        is_correct=True,
+    )
     assert opt.id == "opt_1"
     assert opt.text == "Sample answer"
+    assert opt.explanation == "Sample explanation why valid"
     assert opt.is_correct is True
     assert opt.to_client_dict() == {"id": "opt_1", "text": "Sample answer"}
+    assert opt.to_client_dict(reveal_details=True) == {
+        "id": "opt_1",
+        "text": "Sample answer",
+        "explanation": "Sample explanation why valid",
+        "is_correct": True,
+    }
 
     # Blank option ID or invalid characters
     with pytest.raises(PydanticValidationError):
@@ -35,8 +78,15 @@ def test_option_model_serialization_and_validation():
 
 
 def test_client_option_validation():
-    opt = ClientOption(id="opt_valid", text="Option display text")
+    opt = ClientOption(
+        id="opt_valid",
+        text="Option display text",
+        explanation="Explanation why choice is right/wrong",
+        is_correct=True,
+    )
     assert opt.id == "opt_valid"
+    assert opt.explanation == "Explanation why choice is right/wrong"
+    assert opt.is_correct is True
 
     # Empty text fails
     with pytest.raises(PydanticValidationError):
@@ -88,7 +138,7 @@ def test_grading_case_validations():
 
 
 def test_pool_constraints_model():
-    # Valid
+    # Valid with strings
     pc = PoolConstraints(
         correct_pool=["C1", "C2", "C3"],
         incorrect_pool=["I1", "I2"],
@@ -97,6 +147,23 @@ def test_pool_constraints_model():
     )
     assert pc.t == 3
     assert pc.c == 2
+
+    # Valid with dicts and AnswerChoice objects
+    pc_objects = PoolConstraints(
+        correct_pool=[
+            {"text": "C1", "explanation": "Exp C1"},
+            AnswerChoice(text="C2", explanation="Exp C2"),
+        ],
+        incorrect_pool=[
+            {"text": "I1", "explanation": "Exp I1"},
+        ],
+        t=2,
+        c=1,
+    )
+    assert len(pc_objects.correct_pool) == 2
+    c0 = pc_objects.correct_pool[0]
+    assert isinstance(c0, AnswerChoice)
+    assert c0.explanation == "Exp C1"
 
     # Invalid: c > |C|
     with pytest.raises(PydanticValidationError, match="1 <= c <= |C|"):
@@ -121,8 +188,14 @@ def test_studio_settings_payload_validation():
     payload = StudioSettingsPayload(
         display_name="Test Question",
         prompt="Select answers:",
-        correct_answers=["C1", "C2"],
-        incorrect_answers=["I1", "I2"],
+        correct_answers=[
+            {"text": "C1", "explanation": "Why C1 is right"},
+            {"text": "C2", "explanation": "Why C2 is right"},
+        ],
+        incorrect_answers=[
+            {"text": "I1", "explanation": "Why I1 is wrong"},
+            {"text": "I2", "explanation": "Why I2 is wrong"},
+        ],
         total_options_count=3,
         correct_options_count=1,
         weight=5.0,
@@ -131,6 +204,9 @@ def test_studio_settings_payload_validation():
     assert payload.total_options_count == 3
     assert payload.weight == 5.0
     assert payload.show_correctness == ShowCorrectnessMode.ALWAYS
+    ans0 = payload.correct_answers[0]
+    assert isinstance(ans0, AnswerChoice)
+    assert ans0.explanation == "Why C1 is right"
 
     # String value coerced to ShowCorrectnessMode Enum
     payload_str_enum = StudioSettingsPayload(
@@ -202,12 +278,22 @@ def test_student_response_models():
         feedback="Great job!",
         attempts=1,
         max_attempts=3,
+        options=[
+            ClientOption(
+                id="opt_1",
+                text="Correct option",
+                explanation="Explanation why correct",
+                is_correct=True,
+            )
+        ],
     )
     dumped = submit_resp.model_dump()
     assert dumped["success"] is True
     assert dumped["score"] == 10.0
     assert dumped["is_correct"] is True
     assert dumped["attempts_remaining"] == 2
+    assert dumped["options"][0]["explanation"] == "Explanation why correct"
+    assert dumped["options"][0]["is_correct"] is True
 
     reset_resp = ResetResponse(
         success=True,
@@ -231,8 +317,8 @@ def test_student_view_context_validation():
         display_name="Test Context",
         prompt="Select:",
         options=[
-            ClientOption(id="opt_1", text="Option 1"),
-            ClientOption(id="opt_2", text="Option 2"),
+            ClientOption(id="opt_1", text="Option 1", explanation="Why 1", is_correct=True),
+            ClientOption(id="opt_2", text="Option 2", explanation="Why 2", is_correct=False),
         ],
         selected_ids=["opt_1"],
         attempts=1,
@@ -248,6 +334,7 @@ def test_student_view_context_validation():
         is_single_choice=True,
     )
     assert ctx.attempts_remaining == 2
+    assert ctx.options[0].explanation == "Why 1"
 
     # Selected ID not in options
     with pytest.raises(PydanticValidationError, match="selected_ids contains IDs not in options list"):
@@ -277,8 +364,14 @@ def test_studio_view_context_validation():
     ctx = StudioViewContext(
         display_name="Studio Title",
         prompt="Studio Prompt",
-        correct_answers=["C1", "C2"],
-        incorrect_answers=["I1", "I2"],
+        correct_answers=[
+            {"text": "C1", "explanation": "Exp C1"},
+            {"text": "C2", "explanation": "Exp C2"},
+        ],
+        incorrect_answers=[
+            {"text": "I1", "explanation": "Exp I1"},
+            {"text": "I2", "explanation": "Exp I2"},
+        ],
         total_options_count=3,
         correct_options_count=1,
         weight=1.0,
@@ -287,6 +380,9 @@ def test_studio_view_context_validation():
         explanation="Explanation",
     )
     assert ctx.total_options_count == 3
+    c0 = ctx.correct_answers[0]
+    assert isinstance(c0, AnswerChoice)
+    assert c0.explanation == "Exp C1"
 
     # Incompatible pool bounds in studio context
     with pytest.raises(PydanticValidationError):

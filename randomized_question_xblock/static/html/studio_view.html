@@ -1,27 +1,34 @@
 <div class="randomized-question-studio">
     <div class="studio-header">
         <h2>Randomized Question Authoring</h2>
-        <p class="subtitle">Configure option pools (C, I), sampling counts (t, c), and custom grading piecewise cases g(x).</p>
+        <p class="subtitle">Configure option pools (C, I) with explanations, sampling parameters (t, c), and piecewise grading cases g(x).</p>
     </div>
 
     <div class="studio-section">
         <h3>General Settings</h3>
         <div class="form-group">
             <label for="rq-display-name">Display Name</label>
-            <input type="text" id="rq-display-name" class="form-control" />
+            <input type="text" id="rq-display-name" class="form-control" placeholder="e.g. Asymptotic Complexity &amp; Sorting Algorithms" />
+            <small class="form-text text-muted">Problem title displayed in the course unit header.</small>
         </div>
         <div class="form-group">
-            <label for="rq-prompt">Question Prompt (Markdown / HTML supported)</label>
-            <textarea id="rq-prompt" class="form-control" rows="3"></textarea>
+            <label for="rq-prompt">Question Prompt</label>
+            <textarea id="rq-prompt" class="form-control" rows="3" placeholder="e.g. Select all statements that correctly describe comparison-based sorting algorithms:&#10;&#10;Supports Markdown (**bold**, `inline code`, ```python&#10;def sort(arr):&#10;```) and LaTeX math ($O(n \log n)$ or $$\sum_{i=1}^n i$$)."></textarea>
+            <small class="form-text text-muted">Markdown, HTML formatting, code blocks, and LaTeX math formulas ($...$ or $$...$$) are fully supported.</small>
         </div>
     </div>
 
     <div class="studio-section">
         <h3>Answer Pools Configuration</h3>
+        <p class="section-help">Add choices to the Correct and Incorrect pools. For each choice, you can provide an optional explanation explaining why it is valid or invalid.</p>
+        
         <div class="pools-grid">
             <div class="pool-box correct-pool-box">
                 <div class="pool-header">
-                    <h4>Correct Answers Pool (C) <span class="badge pool-c-count">0 items</span></h4>
+                    <div>
+                        <h4>Correct Answers Pool (C) <span class="badge pool-c-count">0 items</span></h4>
+                        <small class="pool-desc">Valid choices sampled during student attempts ((c) items drawn).</small>
+                    </div>
                     <button type="button" class="btn btn-sm btn-outline-success btn-add-c">+ Add Correct Answer</button>
                 </div>
                 <div class="pool-items-list list-pool-c">
@@ -31,7 +38,10 @@
 
             <div class="pool-box incorrect-pool-box">
                 <div class="pool-header">
-                    <h4>Incorrect Answers Pool (I) <span class="badge pool-i-count">0 items</span></h4>
+                    <div>
+                        <h4>Incorrect Answers Pool (I) <span class="badge pool-i-count">0 items</span></h4>
+                        <small class="pool-desc">Distractor choices sampled during student attempts ((t - c) items drawn).</small>
+                    </div>
                     <button type="button" class="btn btn-sm btn-outline-danger btn-add-i">+ Add Incorrect Answer</button>
                 </div>
                 <div class="pool-items-list list-pool-i">
@@ -46,20 +56,20 @@
         <div class="row-params">
             <div class="form-group param-col">
                 <label for="rq-param-t">Total Answers to Appear (t)</label>
-                <input type="number" id="rq-param-t" class="form-control" min="2" />
-                <small class="form-text text-muted constraint-t-note">Constraint: 2 &le; t &le; |C| + |I|</small>
+                <input type="number" id="rq-param-t" class="form-control" min="2" placeholder="e.g. 4" />
+                <small class="form-text text-muted constraint-t-note">Constraint: 2 &le; t &le; |C| + |I| (total choices displayed to learner)</small>
             </div>
             <div class="form-group param-col">
                 <label for="rq-param-c">Correct Answers to Appear (c)</label>
-                <input type="number" id="rq-param-c" class="form-control" min="1" />
-                <small class="form-text text-muted constraint-c-note">Constraint: 1 &le; c &le; |C| and (t - c) &le; |I|</small>
+                <input type="number" id="rq-param-c" class="form-control" min="1" placeholder="e.g. 2" />
+                <small class="form-text text-muted constraint-c-note">Constraint: 1 &le; c &le; |C| and (t - c) &le; |I| (correct choices sampled per attempt)</small>
             </div>
         </div>
         <div id="pool-validation-banner" class="alert alert-danger" style="display: none;"></div>
     </div>
 
     <div class="studio-section">
-        <h3>Grading Function g(x) & Case Definitions</h3>
+        <h3>Grading Function g(x) &amp; Case Definitions</h3>
         <p class="section-help">Define custom piecewise grading cases depending on the number of correctly guessed answers (x) and wrong selections (w).</p>
 
         <div class="failure-rules-box">
@@ -100,34 +110,36 @@
 
             <div class="form-group fallback-score-group">
                 <label for="rq-fallback-score">Default Fallback Score Fraction (when no case matches)</label>
-                <input type="number" id="rq-fallback-score" class="form-control" min="0" max="1" step="0.05" />
+                <input type="number" id="rq-fallback-score" class="form-control" min="0" max="1" step="0.05" placeholder="0.0" />
+                <small class="form-text text-muted">Fraction awarded when no explicit piecewise rule matches (0.0 = 0% credit).</small>
             </div>
         </div>
     </div>
 
     <div class="studio-section">
-        <h3>Grading Controls & Explanations</h3>
+        <h3>Grading Controls &amp; Explanations</h3>
         <div class="row-params">
             <div class="form-group param-col">
                 <label for="rq-weight">Problem Weight (Points)</label>
-                <input type="number" id="rq-weight" class="form-control" min="0" step="0.5" />
+                <input type="number" id="rq-weight" class="form-control" min="0" step="0.5" placeholder="e.g. 10.0" />
             </div>
             <div class="form-group param-col">
                 <label for="rq-max-attempts">Maximum Attempts</label>
-                <input type="number" id="rq-max-attempts" class="form-control" min="1" />
+                <input type="number" id="rq-max-attempts" class="form-control" min="1" placeholder="e.g. 3" />
             </div>
             <div class="form-group param-col">
                 <label for="rq-show-correctness">Show Correctness</label>
                 <select id="rq-show-correctness" class="form-control">
-                    <option value="always">Always</option>
-                    <option value="past_due">Past Due</option>
-                    <option value="never">Never</option>
+                    <option value="always">Always (Show immediately upon submission)</option>
+                    <option value="past_due">Past Due (Show after course due date)</option>
+                    <option value="never">Never (Do not reveal answers or explanations)</option>
                 </select>
             </div>
         </div>
         <div class="form-group">
-            <label for="rq-explanation">Post-Submission Explanation</label>
-            <textarea id="rq-explanation" class="form-control" rows="2"></textarea>
+            <label for="rq-explanation">Overall Post-Submission Explanation</label>
+            <textarea id="rq-explanation" class="form-control" rows="3" placeholder="e.g. Comprehensive solution explanation shown after submission (supports Markdown, LaTeX formulas like $O(n \log n)$, and code blocks)..."></textarea>
+            <small class="form-text text-muted">Pedagogical overview shown to students after submitting when correctness visibility is active.</small>
         </div>
     </div>
 

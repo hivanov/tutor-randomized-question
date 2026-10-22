@@ -20,32 +20,53 @@ function RandomizedQuestionStudioView(runtime, element, initData) {
     function renderPool(listSelector, items, isCorrect) {
         var $list = $el.find(listSelector);
         $list.empty();
-        (items || []).forEach(function(itemText, idx) {
-            var $row = $('<div class="pool-item-row"></div>');
-            var $input = $('<input type="text" class="form-control pool-item-input">').val(itemText);
-            var $btnRemove = $('<button type="button" class="btn btn-sm btn-danger">&times;</button>');
-
-            $btnRemove.on('click', function() {
-                $row.remove();
-                updatePoolCounts();
-                validateConstraintsLive();
-            });
-
-            $input.on('input', function() {
-                validateConstraintsLive();
-            });
-
-            $row.append($input).append($btnRemove);
+        (items || []).forEach(function(item) {
+            var itemText = typeof item === 'string' ? item : (item.text || '');
+            var itemExplanation = typeof item === 'object' && item.explanation ? item.explanation : '';
+            var $row = createPoolItemRow(itemText, itemExplanation, isCorrect);
             $list.append($row);
         });
         updatePoolCounts();
     }
 
-    function addPoolItem(listSelector) {
-        var $list = $el.find(listSelector);
+    function createPoolItemRow(text, explanation, isCorrect) {
         var $row = $('<div class="pool-item-row"></div>');
-        var $input = $('<input type="text" class="form-control pool-item-input" placeholder="Enter option text...">');
-        var $btnRemove = $('<button type="button" class="btn btn-sm btn-danger">&times;</button>');
+        
+        var textPlaceholder = isCorrect 
+            ? 'Correct answer choice text (supports Markdown & math, e.g. $O(n \\log n)$)...'
+            : 'Incorrect answer / distractor text (supports Markdown & math, e.g. $O(n^2)$)...';
+            
+        var explPlaceholder = isCorrect
+            ? 'Optional explanation: Why this answer is correct (supports Markdown, LaTeX, code)...'
+            : 'Optional explanation: Why this answer is invalid (supports Markdown, LaTeX, code)...';
+
+        var $card = $('<div class="pool-item-card"></div>');
+
+        // Main choice input row
+        var $mainRow = $('<div class="pool-item-main-row"></div>');
+        var $badge = $('<span class="pool-item-type-badge"></span>')
+            .addClass(isCorrect ? 'badge-correct' : 'badge-incorrect')
+            .text(isCorrect ? 'Valid Answer' : 'Distractor');
+            
+        var $input = $('<input type="text" class="form-control pool-item-input">')
+            .attr('placeholder', textPlaceholder)
+            .val(text || '');
+            
+        var $btnRemove = $('<button type="button" class="btn btn-sm btn-danger btn-remove-option" title="Delete choice">&times;</button>');
+
+        $mainRow.append($badge).append($input).append($btnRemove);
+
+        // Explanation row
+        var $explRow = $('<div class="pool-item-expl-row"></div>');
+        var $explLabel = $('<span class="pool-expl-label">Explanation:</span>');
+        var $explInput = $('<input type="text" class="form-control pool-item-explanation">')
+            .attr('placeholder', explPlaceholder)
+            .val(explanation || '');
+
+        $explRow.append($explLabel).append($explInput);
+
+        $card.append($mainRow).append($explRow);
+        $row.append($card);
 
         $btnRemove.on('click', function() {
             $row.remove();
@@ -57,22 +78,28 @@ function RandomizedQuestionStudioView(runtime, element, initData) {
             validateConstraintsLive();
         });
 
-        $row.append($input).append($btnRemove);
+        return $row;
+    }
+
+    function addPoolItem(listSelector, isCorrect) {
+        var $list = $el.find(listSelector);
+        var $row = createPoolItemRow('', '', isCorrect);
         $list.append($row);
-        $input.focus();
+        $row.find('.pool-item-input').focus();
         updatePoolCounts();
         validateConstraintsLive();
     }
 
     function getPoolValues(listSelector) {
-        var values = [];
-        $el.find(listSelector + ' .pool-item-input').each(function() {
-            var val = $(this).val().trim();
-            if (val) {
-                values.push(val);
+        var items = [];
+        $el.find(listSelector + ' .pool-item-row').each(function() {
+            var text = $(this).find('.pool-item-input').val().trim();
+            var explanation = $(this).find('.pool-item-explanation').val().trim();
+            if (text) {
+                items.push({ text: text, explanation: explanation });
             }
         });
-        return values;
+        return items;
     }
 
     function updatePoolCounts() {
@@ -94,7 +121,7 @@ function RandomizedQuestionStudioView(runtime, element, initData) {
 
             // Description
             var $descTd = $('<td></td>');
-            var $descInput = $('<input type="text" class="form-control case-desc">').val(c.description || '');
+            var $descInput = $('<input type="text" class="form-control case-desc" placeholder="e.g. Full credit: All correct">').val(c.description || '');
             $descTd.append($descInput);
 
             // Condition Type
@@ -112,6 +139,10 @@ function RandomizedQuestionStudioView(runtime, element, initData) {
             var $valInput = $('<input type="text" class="form-control case-val">').val(c.condition_value !== null && c.condition_value !== undefined ? c.condition_value : '');
             if (c.condition_type === 'all_correct') {
                 $valInput.prop('disabled', true).attr('placeholder', 'N/A (all)');
+            } else if (c.condition_type === 'custom_expr') {
+                $valInput.prop('disabled', false).attr('placeholder', 'e.g. x==2 and w==0');
+            } else {
+                $valInput.prop('disabled', false).attr('placeholder', 'e.g. 1');
             }
             $valTd.append($valInput);
 
@@ -128,7 +159,7 @@ function RandomizedQuestionStudioView(runtime, element, initData) {
 
             // Score Fraction
             var $scoreTd = $('<td></td>');
-            var $scoreInput = $('<input type="number" class="form-control case-score" min="0" max="100" step="5">')
+            var $scoreInput = $('<input type="number" class="form-control case-score" min="0" max="100" step="5" placeholder="100">')
                 .val(Math.round((c.score_fraction !== undefined ? c.score_fraction : 1.0) * 100));
             $scoreTd.append($scoreInput);
 
@@ -197,8 +228,8 @@ function RandomizedQuestionStudioView(runtime, element, initData) {
     }
 
     // Event Bindings
-    $el.find('.btn-add-c').on('click', function() { addPoolItem('.list-pool-c'); });
-    $el.find('.btn-add-i').on('click', function() { addPoolItem('.list-pool-i'); });
+    $el.find('.btn-add-c').on('click', function() { addPoolItem('.list-pool-c', true); });
+    $el.find('.btn-add-i').on('click', function() { addPoolItem('.list-pool-i', false); });
     $el.find('.btn-add-case').on('click', addCase);
     $el.find('#rq-param-t, #rq-param-c').on('input change', validateConstraintsLive);
 

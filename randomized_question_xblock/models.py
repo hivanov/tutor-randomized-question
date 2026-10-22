@@ -3,6 +3,7 @@ Pydantic models for data interchange, validation, and serialization in Randomize
 """
 
 import re
+from collections.abc import Sequence
 from enum import StrEnum
 from typing import Any
 
@@ -26,8 +27,72 @@ class ConditionType(StrEnum):
     CUSTOM_EXPR = "custom_expr"
 
 
+class AnswerChoice(BaseModel):
+    """Authoring model for an individual option in an answer pool, with optional explanation."""
+
+    model_config = ConfigDict(
+        frozen=True,
+        json_schema_extra={
+            "examples": [
+                {
+                    "text": "Python supports multiple inheritance.",
+                    "explanation": "Python uses C3 linearization (Method Resolution Order) to support multiple inheritance.",
+                }
+            ]
+        },
+    )
+
+    text: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+        description="Display text of the answer choice (Markdown, LaTeX math, and code supported).",
+        examples=["Python supports multiple inheritance."],
+    )
+    explanation: str = Field(
+        default="",
+        max_length=10000,
+        description="Optional explanation why this answer choice is valid or invalid.",
+        examples=["Python uses C3 linearization (Method Resolution Order) to support multiple inheritance."],
+    )
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, v: str) -> str:
+        clean = v.strip()
+        if not clean:
+            raise ValueError("Answer choice text cannot be empty or whitespace.")
+        return clean
+
+    @field_validator("explanation")
+    @classmethod
+    def clean_explanation(cls, v: str) -> str:
+        return v.strip() if v else ""
+
+    def to_dict(self) -> dict[str, str]:
+        return {"text": self.text, "explanation": self.explanation}
+
+
+def normalize_answer_choice(item: Any) -> AnswerChoice:
+    """Helper to normalize a string, dict, or AnswerChoice into an AnswerChoice model."""
+    if isinstance(item, AnswerChoice):
+        return item
+    if isinstance(item, str):
+        clean = item.strip()
+        if not clean:
+            raise ValueError("Answer choice string cannot be blank.")
+        return AnswerChoice(text=clean, explanation="")
+    if isinstance(item, dict):
+        text = str(item.get("text", "")).strip()
+        expl = str(item.get("explanation", "")).strip()
+        if not text:
+            raise ValueError("Answer choice dict must contain a non-empty 'text' field.")
+        return AnswerChoice(text=text, explanation=expl)
+    raise ValueError(f"Unsupported answer choice format: {type(item)}")
+
+
 class Option(BaseModel):
-    """Internal model for an option item including its ground-truth answer key."""
+    """Internal model for a sampled option item including its ground-truth answer key and explanation."""
 
     model_config = ConfigDict(
         frozen=True,
@@ -36,6 +101,7 @@ class Option(BaseModel):
                 {
                     "id": "opt_a1b2c3d4",
                     "text": "Python supports multiple inheritance.",
+                    "explanation": "Python supports multiple inheritance via C3 MRO.",
                     "is_correct": True,
                 }
             ]
@@ -55,6 +121,12 @@ class Option(BaseModel):
         max_length=2000,
         description="Display text of the answer choice.",
         examples=["Python supports multiple inheritance."],
+    )
+    explanation: str = Field(
+        default="",
+        max_length=10000,
+        description="Optional explanation of why this option is valid or invalid.",
+        examples=["Python supports multiple inheritance via C3 MRO."],
     )
     is_correct: bool = Field(
         default=True,
@@ -80,12 +152,21 @@ class Option(BaseModel):
             raise ValueError("Option text cannot be empty or whitespace.")
         return clean
 
-    def to_client_dict(self) -> dict[str, Any]:
-        return {"id": self.id, "text": self.text}
+    @field_validator("explanation")
+    @classmethod
+    def clean_explanation(cls, v: str) -> str:
+        return v.strip() if v else ""
+
+    def to_client_dict(self, reveal_details: bool = False) -> dict[str, Any]:
+        result: dict[str, Any] = {"id": self.id, "text": self.text}
+        if reveal_details:
+            result["explanation"] = self.explanation
+            result["is_correct"] = self.is_correct
+        return result
 
 
 class ClientOption(BaseModel):
-    """Sanitized option model exposed to student client UI (ground-truth key stripped)."""
+    """Sanitized option model exposed to student client UI."""
 
     model_config = ConfigDict(
         frozen=True,
@@ -94,6 +175,8 @@ class ClientOption(BaseModel):
                 {
                     "id": "opt_a1b2c3d4",
                     "text": "Python supports multiple inheritance.",
+                    "explanation": "Python supports multiple inheritance via C3 MRO.",
+                    "is_correct": True,
                 }
             ]
         },
@@ -113,6 +196,17 @@ class ClientOption(BaseModel):
         description="Display text of the answer option.",
         examples=["Python supports multiple inheritance."],
     )
+    explanation: str = Field(
+        default="",
+        max_length=10000,
+        description="Optional explanation why this choice is valid or invalid (revealed post-submission).",
+        examples=["Python supports multiple inheritance via C3 MRO."],
+    )
+    is_correct: bool | None = Field(
+        default=None,
+        description="Whether this choice was correct (revealed post-submission when correctness is enabled).",
+        examples=[True, False, None],
+    )
 
     @field_validator("id")
     @classmethod
@@ -129,6 +223,11 @@ class ClientOption(BaseModel):
         if not clean:
             raise ValueError("ClientOption text cannot be empty or whitespace.")
         return clean
+
+    @field_validator("explanation")
+    @classmethod
+    def clean_explanation(cls, v: str) -> str:
+        return v.strip() if v else ""
 
 
 class GradingCase(BaseModel):
@@ -239,8 +338,16 @@ class PoolConstraints(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "correct_pool": ["Ans A", "Ans B", "Ans C"],
-                    "incorrect_pool": ["Wrong 1", "Wrong 2", "Wrong 3"],
+                    "correct_pool": [
+                        {"text": "Ans A", "explanation": "Why A is correct"},
+                        {"text": "Ans B", "explanation": "Why B is correct"},
+                        {"text": "Ans C", "explanation": "Why C is correct"},
+                    ],
+                    "incorrect_pool": [
+                        {"text": "Wrong 1", "explanation": "Why 1 is wrong"},
+                        {"text": "Wrong 2", "explanation": "Why 2 is wrong"},
+                        {"text": "Wrong 3", "explanation": "Why 3 is wrong"},
+                    ],
                     "t": 4,
                     "c": 2,
                 }
@@ -248,18 +355,16 @@ class PoolConstraints(BaseModel):
         },
     )
 
-    correct_pool: list[str] = Field(
+    correct_pool: Sequence[AnswerChoice | str | dict[str, Any]] = Field(
         ...,
         min_length=1,
         max_length=100,
-        description="Set of ground-truth correct answer strings (Pool C).",
-        examples=[["Option A", "Option B", "Option C"]],
+        description="Set of ground-truth correct answer items (Pool C).",
     )
-    incorrect_pool: list[str] = Field(
+    incorrect_pool: Sequence[AnswerChoice | str | dict[str, Any]] = Field(
         default_factory=list,
         max_length=100,
-        description="Set of ground-truth incorrect answer strings (Pool I).",
-        examples=[["Wrong 1", "Wrong 2", "Wrong 3"]],
+        description="Set of ground-truth incorrect answer items (Pool I).",
     )
     t: int = Field(
         ...,
@@ -276,12 +381,19 @@ class PoolConstraints(BaseModel):
         examples=[2, 1],
     )
 
-    @field_validator("correct_pool", "incorrect_pool")
+    @field_validator("correct_pool", "incorrect_pool", mode="before")
     @classmethod
-    def clean_pool_items(cls, items: list[str]) -> list[str]:
-        cleaned = [item.strip() for item in items if item and item.strip()]
-        if len(cleaned) != len(set(cleaned)):
-            raise ValueError("Option pool contains duplicate items; all options in a pool must be unique.")
+    def coerce_and_clean_pool_items(cls, items: Any) -> list[AnswerChoice]:
+        if not isinstance(items, list):
+            raise ValueError("Pool items must be provided as a list.")
+        cleaned: list[AnswerChoice] = []
+        seen_texts: set[str] = set()
+        for raw in items:
+            choice = normalize_answer_choice(raw)
+            if choice.text in seen_texts:
+                raise ValueError(f"Option pool contains duplicate items; '{choice.text}' is duplicated.")
+            seen_texts.add(choice.text)
+            cleaned.append(choice)
         return cleaned
 
     @model_validator(mode="after")
@@ -290,8 +402,20 @@ class PoolConstraints(BaseModel):
         i_len = len(self.incorrect_pool)
         total_available = c_len + i_len
 
-        # Disjoint check
-        overlap = set(self.correct_pool) & set(self.incorrect_pool)
+        # Disjoint check by answer text
+        c_texts = {
+            item.text
+            if isinstance(item, AnswerChoice)
+            else (item if isinstance(item, str) else str(item.get("text", "")))
+            for item in self.correct_pool
+        }
+        i_texts = {
+            item.text
+            if isinstance(item, AnswerChoice)
+            else (item if isinstance(item, str) else str(item.get("text", "")))
+            for item in self.incorrect_pool
+        }
+        overlap = c_texts & i_texts
         if overlap:
             raise ValueError(f"Options cannot appear in both Correct and Incorrect pools: {overlap}")
 
@@ -333,8 +457,18 @@ class StudioSettingsPayload(BaseModel):
                 {
                     "display_name": "Python Sequence Types",
                     "prompt": "Select all immutable built-in sequences in Python:",
-                    "correct_answers": ["tuple", "str", "bytes", "frozenset"],
-                    "incorrect_answers": ["list", "bytearray", "dict", "set"],
+                    "correct_answers": [
+                        {"text": "tuple", "explanation": "Tuples cannot be modified in place."},
+                        {"text": "str", "explanation": "Strings are immutable sequences of unicode characters."},
+                        {"text": "bytes", "explanation": "Bytes sequence is immutable."},
+                        {"text": "frozenset", "explanation": "Frozenset is an immutable set."},
+                    ],
+                    "incorrect_answers": [
+                        {"text": "list", "explanation": "Lists are mutable sequences."},
+                        {"text": "bytearray", "explanation": "bytearray is a mutable sequence of bytes."},
+                        {"text": "dict", "explanation": "Dictionaries are mutable mapping objects."},
+                        {"text": "set", "explanation": "Sets are mutable collections."},
+                    ],
                     "total_options_count": 4,
                     "correct_options_count": 2,
                     "fail_on_any_wrong": True,
@@ -360,30 +494,22 @@ class StudioSettingsPayload(BaseModel):
         default="Select all correct statements below:",
         min_length=1,
         max_length=10000,
-        description="The instructional problem prompt (Markdown and HTML supported).",
+        description="The instructional problem prompt (Markdown, LaTeX math, and HTML supported).",
         examples=[
             "Select all immutable built-in sequences in Python:",
             "Which of the following statements about HTTP/3 are true?",
         ],
     )
-    correct_answers: list[str] = Field(
+    correct_answers: Sequence[AnswerChoice | str | dict[str, Any]] = Field(
         ...,
         min_length=1,
         max_length=100,
-        description="Ground-truth correct answer choices pool (C).",
-        examples=[
-            ["tuple", "str", "bytes"],
-            ["QUIC is built on UDP", "0-RTT connection resumption is supported"],
-        ],
+        description="Ground-truth correct answer choices pool (C) with optional explanations.",
     )
-    incorrect_answers: list[str] = Field(
+    incorrect_answers: Sequence[AnswerChoice | str | dict[str, Any]] = Field(
         default_factory=list,
         max_length=100,
-        description="Ground-truth incorrect answer choices pool (I).",
-        examples=[
-            ["list", "bytearray", "dict"],
-            ["HTTP/3 requires TCP handshake", "Head-of-line blocking still occurs at TCP level"],
-        ],
+        description="Ground-truth incorrect answer choices pool (I) with optional explanations.",
     )
     total_options_count: int = Field(
         default=4,
@@ -420,16 +546,6 @@ class StudioSettingsPayload(BaseModel):
         default_factory=list,
         max_length=50,
         description="Ordered list of piecewise grading cases evaluated sequentially.",
-        examples=[
-            [
-                {
-                    "id": "case_1",
-                    "description": "Full credit",
-                    "condition_type": ConditionType.ALL_CORRECT,
-                    "score_fraction": 1.0,
-                }
-            ]
-        ],
     )
     weight: float = Field(
         default=1.0,
@@ -465,12 +581,19 @@ class StudioSettingsPayload(BaseModel):
             raise ValueError("Field cannot be empty or whitespace.")
         return clean
 
-    @field_validator("correct_answers", "incorrect_answers")
+    @field_validator("correct_answers", "incorrect_answers", mode="before")
     @classmethod
-    def clean_and_validate_pool(cls, items: list[str]) -> list[str]:
-        cleaned = [item.strip() for item in items if item and item.strip()]
-        if len(cleaned) != len(set(cleaned)):
-            raise ValueError("Option pool contains duplicate items; all options in a pool must be unique.")
+    def coerce_pool_items(cls, items: Any) -> list[AnswerChoice]:
+        if not isinstance(items, list):
+            raise ValueError("Pool must be a list.")
+        cleaned: list[AnswerChoice] = []
+        seen_texts: set[str] = set()
+        for raw in items:
+            choice = normalize_answer_choice(raw)
+            if choice.text in seen_texts:
+                raise ValueError("Option pool contains duplicate items; all options in a pool must be unique.")
+            seen_texts.add(choice.text)
+            cleaned.append(choice)
         return cleaned
 
     @model_validator(mode="after")
@@ -623,6 +746,14 @@ class StudentSubmitResponse(BaseModel):
                     "max_attempts": 3,
                     "attempts_remaining": 2,
                     "explanation": "Tuples are immutable.",
+                    "options": [
+                        {
+                            "id": "opt_a1b2c3d4",
+                            "text": "Python supports multiple inheritance.",
+                            "explanation": "Python supports multiple inheritance via C3 MRO.",
+                            "is_correct": True,
+                        }
+                    ],
                     "error": None,
                 }
             ]
@@ -700,8 +831,12 @@ class StudentSubmitResponse(BaseModel):
     )
     explanation: str = Field(
         default="",
-        description="Solution explanation if visibility rules permit.",
+        description="Overall solution explanation if visibility rules permit.",
         examples=["Tuples are immutable sequence types."],
+    )
+    options: list[ClientOption] = Field(
+        default_factory=list,
+        description="Options list with revealed explanations and correctness indicators when permitted.",
     )
     error: str | None = Field(
         default=None,
@@ -713,7 +848,6 @@ class StudentSubmitResponse(BaseModel):
     def validate_attempts_remaining(self) -> "StudentSubmitResponse":
         expected_remaining = max(0, self.max_attempts - self.attempts)
         if self.attempts_remaining != expected_remaining:
-            # Sync attempts_remaining automatically
             object.__setattr__(self, "attempts_remaining", expected_remaining)
         return self
 
@@ -808,7 +942,7 @@ class StudentViewContext(BaseModel):
         ...,
         min_length=1,
         max_length=10000,
-        description="Problem prompt.",
+        description="Problem prompt (supports Markdown, LaTeX formulas, and code).",
         examples=["Select all correct statements below:"],
     )
     options: list[ClientOption] = Field(
@@ -876,7 +1010,7 @@ class StudentViewContext(BaseModel):
     )
     explanation: str = Field(
         default="",
-        description="Explanation text.",
+        description="Overall explanation text.",
         examples=["", "Python lists are dynamic arrays."],
     )
     is_single_choice: bool = Field(
@@ -929,21 +1063,19 @@ class StudioViewContext(BaseModel):
         ...,
         min_length=1,
         max_length=10000,
-        description="Problem prompt.",
+        description="Problem prompt (Markdown, LaTeX math, and code supported).",
         examples=["Select all correct statements below:"],
     )
-    correct_answers: list[str] = Field(
+    correct_answers: Sequence[AnswerChoice | str | dict[str, Any]] = Field(
         ...,
         min_length=1,
         max_length=100,
-        description="Correct answers pool (C).",
-        examples=[["Python supports multiple inheritance.", "Tuples are immutable."]],
+        description="Correct answers pool (C) with optional explanations.",
     )
-    incorrect_answers: list[str] = Field(
+    incorrect_answers: Sequence[AnswerChoice | str | dict[str, Any]] = Field(
         default_factory=list,
         max_length=100,
-        description="Incorrect answers pool (I).",
-        examples=[["Dictionaries retain no insertion order.", "Strings are mutable."]],
+        description="Incorrect answers pool (I) with optional explanations.",
     )
     total_options_count: int = Field(
         ...,
@@ -980,16 +1112,6 @@ class StudioViewContext(BaseModel):
         default_factory=list,
         max_length=50,
         description="Grading cases.",
-        examples=[
-            [
-                {
-                    "id": "case_1",
-                    "description": "All correct",
-                    "condition_type": ConditionType.ALL_CORRECT,
-                    "score_fraction": 1.0,
-                }
-            ]
-        ],
     )
     weight: float = Field(
         default=1.0,
@@ -1013,7 +1135,7 @@ class StudioViewContext(BaseModel):
     explanation: str = Field(
         default="",
         max_length=10000,
-        description="Post-submission explanation.",
+        description="Post-submission general explanation.",
         examples=["Python lists are dynamic arrays, strings are immutable."],
     )
 
@@ -1025,12 +1147,19 @@ class StudioViewContext(BaseModel):
             raise ValueError("Field cannot be empty or whitespace.")
         return clean
 
-    @field_validator("correct_answers", "incorrect_answers")
+    @field_validator("correct_answers", "incorrect_answers", mode="before")
     @classmethod
-    def clean_and_validate_pool(cls, items: list[str]) -> list[str]:
-        cleaned = [item.strip() for item in items if item and item.strip()]
-        if len(cleaned) != len(set(cleaned)):
-            raise ValueError("Option pool contains duplicate items; all options in a pool must be unique.")
+    def coerce_pool_items(cls, items: Any) -> list[AnswerChoice]:
+        if not isinstance(items, list):
+            raise ValueError("Pool must be a list.")
+        cleaned: list[AnswerChoice] = []
+        seen_texts: set[str] = set()
+        for raw in items:
+            choice = normalize_answer_choice(raw)
+            if choice.text in seen_texts:
+                raise ValueError("Option pool contains duplicate items; all options in a pool must be unique.")
+            seen_texts.add(choice.text)
+            cleaned.append(choice)
         return cleaned
 
     @model_validator(mode="after")

@@ -48,10 +48,15 @@ def test_01_teacher_studio_authoring(browser_instance, test_server):
     assert page.input_value("#rq-param-t") == "4"
     assert page.input_value("#rq-param-c") == "2"
 
-    # Add a new option to pool C
+    # Add a new option to pool C with explanation
     page.click(".btn-add-c")
     page.fill(
-        ".list-pool-c .pool-item-row:last-child input", "Raft uses randomized election timers to avoid split votes."
+        ".list-pool-c .pool-item-row:last-child .pool-item-input",
+        "Raft uses randomized election timers to avoid split votes.",
+    )
+    page.fill(
+        ".list-pool-c .pool-item-row:last-child .pool-item-explanation",
+        "Randomized election timeouts (150-300ms) prevent split votes.",
     )
 
     # Save settings
@@ -132,6 +137,8 @@ def test_02_parameterized_student_submissions(
         assert expected_feedback_snippet in page.text_content(".feedback-message")
         # Explanation shown immediately for always mode
         assert page.is_visible(".explanation-container")
+        # Option-level explanations shown
+        assert page.is_visible(".option-explanation-box")
 
     elif selection_strategy == "one_correct_zero_wrong":
         page.check(f"input[value='{correct_ids[0]}']")
@@ -140,6 +147,8 @@ def test_02_parameterized_student_submissions(
         score_display = str(int(expected_score)) if expected_score.is_integer() else str(expected_score)
         assert score_display in page.text_content(".feedback-title")
         assert expected_feedback_snippet in page.text_content(".feedback-message")
+        # Explanation box only exists for the 1 selected answer
+        assert len(page.query_selector_all(".option-explanation-box")) == 1
 
     elif selection_strategy == "all_correct_plus_one_wrong":
         for cid in correct_ids:

@@ -18,8 +18,17 @@ def create_xblock():
     )
     runtime = TestRuntime(services={"field-data": field_data})
     block = runtime.construct_xblock_from_class(RandomizedQuestionXBlock, scope_ids=scope_ids)
-    block.correct_answers = ["Correct A", "Correct B", "Correct C"]
-    block.incorrect_answers = ["Wrong 1", "Wrong 2", "Wrong 3", "Wrong 4"]
+    block.correct_answers = [
+        {"text": "Correct A", "explanation": "Why A is correct"},
+        {"text": "Correct B", "explanation": "Why B is correct"},
+        {"text": "Correct C", "explanation": "Why C is correct"},
+    ]
+    block.incorrect_answers = [
+        {"text": "Wrong 1", "explanation": "Why 1 is wrong"},
+        {"text": "Wrong 2", "explanation": "Why 2 is wrong"},
+        {"text": "Wrong 3", "explanation": "Why 3 is wrong"},
+        {"text": "Wrong 4", "explanation": "Why 4 is wrong"},
+    ]
     block.total_options_count = 4
     block.correct_options_count = 2
     block.weight = 10.0
@@ -56,8 +65,17 @@ def test_studio_submit_valid():
     payload = {
         "display_name": "Updated Question Title",
         "prompt": "Choose all that apply:",
-        "correct_answers": ["C1", "C2", "C3", "C4"],
-        "incorrect_answers": ["I1", "I2", "I3"],
+        "correct_answers": [
+            {"text": "C1", "explanation": "Exp C1"},
+            {"text": "C2", "explanation": "Exp C2"},
+            {"text": "C3", "explanation": "Exp C3"},
+            {"text": "C4", "explanation": "Exp C4"},
+        ],
+        "incorrect_answers": [
+            {"text": "I1", "explanation": "Exp I1"},
+            {"text": "I2", "explanation": "Exp I2"},
+            {"text": "I3", "explanation": "Exp I3"},
+        ],
         "total_options_count": 5,
         "correct_options_count": 3,
         "fail_on_any_wrong": True,
@@ -87,6 +105,7 @@ def test_studio_submit_valid():
     assert block.total_options_count == 5
     assert block.correct_options_count == 3
     assert block.weight == 20.0
+    assert block.correct_answers[0]["explanation"] == "Exp C1"
 
 
 def test_studio_submit_invalid_constraints():
@@ -121,6 +140,11 @@ def test_submit_answer_full_lifecycle():
     assert res_data1["is_correct"] is False
     assert res_data1["score"] == 0.0
     assert block.attempts == 1
+    # Check that explanation is ONLY returned for the 2 selected choices
+    selected_options = [o for o in res_data1["options"] if o["id"] in [correct_ids[0], wrong_ids[0]]]
+    unselected_options = [o for o in res_data1["options"] if o["id"] not in [correct_ids[0], wrong_ids[0]]]
+    assert all(o["explanation"] != "" for o in selected_options)
+    assert all(o["explanation"] == "" for o in unselected_options)
 
     # Reset for attempt 2
     req_reset = make_post_request({})
@@ -140,6 +164,9 @@ def test_submit_answer_full_lifecycle():
     assert res_data2["is_correct"] is True
     assert res_data2["score"] == 10.0  # 1.0 * weight (10.0)
     assert block.attempts == 2
+    assert "options" in res_data2
+    assert len(res_data2["options"]) == 4
+    assert res_data2["options"][0]["is_correct"] is not None
 
     # Attempt 3: Should be blocked by max_attempts = 2
     req3 = make_post_request({"selected_ids": new_correct_ids})

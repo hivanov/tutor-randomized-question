@@ -81,8 +81,12 @@ def record_video() -> str:
 
         page.click(".btn-add-c")
         page.fill(
-            ".list-pool-c .pool-item-row:last-child input",
+            ".list-pool-c .pool-item-row:last-child .pool-item-input",
             "Raft uses randomized election timers to avoid split votes.",
+        )
+        page.fill(
+            ".list-pool-c .pool-item-row:last-child .pool-item-explanation",
+            "Randomized election timeouts (150-300ms) prevent split votes.",
         )
         time.sleep(1.0)
         page.click(".btn-save")

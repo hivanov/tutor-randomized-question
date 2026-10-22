@@ -13,10 +13,12 @@ from typing import Any
 from pydantic import ValidationError as PydanticValidationError
 
 from .models import (
+    AnswerChoice,
     GradingCase,
     GradingEvaluationResult,
     Option,
     PoolConstraints,
+    normalize_answer_choice,
 )
 
 
@@ -30,7 +32,12 @@ class PoolSampler:
     """
 
     @staticmethod
-    def validate_constraints(correct_pool: list[str], incorrect_pool: list[str], t: int, c: int) -> PoolConstraints:
+    def validate_constraints(
+        correct_pool: Sequence[str | dict[str, Any] | AnswerChoice],
+        incorrect_pool: Sequence[str | dict[str, Any] | AnswerChoice],
+        t: int,
+        c: int,
+    ) -> PoolConstraints:
         """
         Validates mathematical constraints via Pydantic model:
         - len(C) >= 1
@@ -41,8 +48,8 @@ class PoolSampler:
         """
         try:
             return PoolConstraints(
-                correct_pool=correct_pool,
-                incorrect_pool=incorrect_pool,
+                correct_pool=list(correct_pool),
+                incorrect_pool=list(incorrect_pool),
                 t=t,
                 c=c,
             )
@@ -55,8 +62,8 @@ class PoolSampler:
 
     @staticmethod
     def sample_and_shuffle(
-        correct_pool: list[str],
-        incorrect_pool: list[str],
+        correct_pool: Sequence[str | dict[str, Any] | AnswerChoice],
+        incorrect_pool: Sequence[str | dict[str, Any] | AnswerChoice],
         t: int,
         c: int,
         seed: str | None = None,
@@ -65,25 +72,27 @@ class PoolSampler:
         Deterministically samples c correct and (t - c) incorrect items,
         returning a list of validated Option Pydantic models with randomized positions.
         """
-        PoolSampler.validate_constraints(correct_pool, incorrect_pool, t, c)
+        validated = PoolSampler.validate_constraints(correct_pool, incorrect_pool, t, c)
 
         rng = random.Random()
         if seed is not None:
             seed_int = int(hashlib.sha256(str(seed).encode()).hexdigest()[:16], 16)
             rng.seed(seed_int)
 
-        sampled_c = rng.sample(correct_pool, c)
+        sampled_c = rng.sample(validated.correct_pool, c)
         needed_i = t - c
-        sampled_i = rng.sample(incorrect_pool, needed_i) if needed_i > 0 else []
+        sampled_i = rng.sample(validated.incorrect_pool, needed_i) if needed_i > 0 else []
 
         options: list[Option] = []
-        for text in sampled_c:
-            opt_id = hashlib.md5(f"c:{text}".encode()).hexdigest()[:8]
-            options.append(Option(id=f"opt_{opt_id}", text=text, is_correct=True))
+        for choice in sampled_c:
+            item = normalize_answer_choice(choice)
+            opt_id = hashlib.md5(f"c:{item.text}".encode()).hexdigest()[:8]
+            options.append(Option(id=f"opt_{opt_id}", text=item.text, explanation=item.explanation, is_correct=True))
 
-        for text in sampled_i:
-            opt_id = hashlib.md5(f"i:{text}".encode()).hexdigest()[:8]
-            options.append(Option(id=f"opt_{opt_id}", text=text, is_correct=False))
+        for choice in sampled_i:
+            item = normalize_answer_choice(choice)
+            opt_id = hashlib.md5(f"i:{item.text}".encode()).hexdigest()[:8]
+            options.append(Option(id=f"opt_{opt_id}", text=item.text, explanation=item.explanation, is_correct=False))
 
         rng.shuffle(options)
         return options

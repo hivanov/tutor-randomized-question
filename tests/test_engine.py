@@ -107,3 +107,66 @@ def test_sample_and_shuffle_different_seeds_vary():
 
     # Different seeds should produce different draws/permutations
     assert texts_a != texts_b
+
+
+def test_sample_and_shuffle_preserves_explanations():
+    correct_pool = [
+        {"text": "C1", "explanation": "Why C1 is right"},
+        {"text": "C2", "explanation": "Why C2 is right"},
+    ]
+    incorrect_pool = [
+        {"text": "I1", "explanation": "Why I1 is wrong"},
+        {"text": "I2", "explanation": "Why I2 is wrong"},
+    ]
+
+    options = PoolSampler.sample_and_shuffle(correct_pool, incorrect_pool, t=3, c=2, seed="seed_expl_test")
+    assert len(options) == 3
+    for opt in options:
+        if opt.text == "C1":
+            assert opt.explanation == "Why C1 is right"
+            assert opt.is_correct is True
+        elif opt.text == "C2":
+            assert opt.explanation == "Why C2 is right"
+            assert opt.is_correct is True
+        elif opt.text == "I1":
+            assert opt.explanation == "Why I1 is wrong"
+            assert opt.is_correct is False
+        elif opt.text == "I2":
+            assert opt.explanation == "Why I2 is wrong"
+            assert opt.is_correct is False
+
+
+def test_sample_and_shuffle_random_subsets_and_positions():
+    """Verifies that across different render attempts/seeds, both subsets and option order vary."""
+    c_pool = [f"Correct Fact {i}" for i in range(20)]
+    i_pool = [f"Incorrect Distractor {i}" for i in range(20)]
+
+    drawn_subsets: set[frozenset[str]] = set()
+    correct_positions_distribution: list[list[int]] = []
+
+    for attempt in range(15):
+        opts = PoolSampler.sample_and_shuffle(
+            correct_pool=c_pool,
+            incorrect_pool=i_pool,
+            t=5,
+            c=2,
+            seed=f"student_x:attempt_{attempt}",
+        )
+        assert len(opts) == 5
+        assert sum(1 for o in opts if o.is_correct) == 2
+
+        # Record subset of choices
+        subset = frozenset(o.text for o in opts)
+        drawn_subsets.add(subset)
+
+        # Record index positions of the correct choices
+        positions = [idx for idx, o in enumerate(opts) if o.is_correct]
+        correct_positions_distribution.append(positions)
+
+    # Across 15 attempts, we should see multiple different random subsets chosen
+    assert len(drawn_subsets) > 5
+
+    # Across 15 attempts, the positions of correct items must not be fixed at static indices
+    unique_position_combos = {tuple(pos) for pos in correct_positions_distribution}
+    assert len(unique_position_combos) > 3
+
