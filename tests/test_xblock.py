@@ -175,3 +175,85 @@ def test_submit_answer_full_lifecycle():
 
     assert res_data3["success"] is False
     assert "Maximum attempts reached" in res_data3["error"]
+
+
+def test_olx_xml_serialization_and_deserialization():
+    import xml.etree.ElementTree as ET
+
+    block = create_xblock()
+    block.display_name = "OLX Test Question"
+    block.prompt = "What is the airspeed velocity of an unladen swallow?"
+    block.total_options_count = 4
+    block.correct_options_count = 2
+    block.weight = 5.0
+    block.max_attempts = 3
+    block.show_correctness = "always"
+    block.explanation = "African or European?"
+
+    node = ET.Element("randomized_question")
+    block.add_xml_to_node(node)
+
+    assert node.tag == "randomized_question"
+    assert node.get("display_name") == "OLX Test Question"
+    assert node.get("prompt") == "What is the airspeed velocity of an unladen swallow?"
+    assert node.get("total_options_count") == "4"
+    assert node.get("correct_options_count") == "2"
+    assert node.get("weight") == "5.0"
+    assert node.get("max_attempts") == "3"
+
+    # Test deserialization via parse_xml
+    imported_block = RandomizedQuestionXBlock.parse_xml(
+        node,
+        runtime=block.runtime,
+        keys=block.scope_ids,
+        id_generator=None,
+    )
+
+    assert imported_block.display_name == "OLX Test Question"
+    assert imported_block.prompt == "What is the airspeed velocity of an unladen swallow?"
+    assert imported_block.total_options_count == 4
+    assert imported_block.correct_options_count == 2
+    assert imported_block.weight == 5.0
+    assert imported_block.max_attempts == 3
+    assert len(getattr(imported_block, "correct_answers")) == len(getattr(block, "correct_answers"))
+    assert len(getattr(imported_block, "incorrect_answers")) == len(getattr(block, "incorrect_answers"))
+
+
+def test_parse_xml_with_subelements():
+    import xml.etree.ElementTree as ET
+
+    xml_str = """
+    <randomized_question url_name="prob1" display_name="Sample Problem"
+        total_options_count="4" correct_options_count="2"
+        fail_on_any_wrong="true" fail_if_not_all_correct="true"
+        grading_default_score="0.0" weight="2.0" max_attempts="3"
+        show_correctness="always">
+      <prompt>Choose the correct answers:</prompt>
+      <explanation>Detailed explanation here.</explanation>
+      <correct_answers>
+        <item><text>C1</text><explanation>Exp 1</explanation></item>
+        <item><text>C2</text><explanation>Exp 2</explanation></item>
+      </correct_answers>
+      <incorrect_answers>
+        <item><text>I1</text><explanation>Exp W1</explanation></item>
+        <item><text>I2</text><explanation>Exp W2</explanation></item>
+      </incorrect_answers>
+      <grading_cases>
+        <item id="c1" description="Full score" condition_type="all_correct" max_wrong_allowed="0" score_fraction="1.0" feedback="Great!" />
+      </grading_cases>
+    </randomized_question>
+    """
+    node = ET.fromstring(xml_str)
+    block = create_xblock()
+    imported = RandomizedQuestionXBlock.parse_xml(node, runtime=block.runtime, keys=block.scope_ids)
+    assert imported.display_name == "Sample Problem"
+    assert imported.prompt == "Choose the correct answers:"
+    assert imported.explanation == "Detailed explanation here."
+    assert imported.total_options_count == 4
+    assert imported.correct_options_count == 2
+    assert imported.weight == 2.0
+    assert len(getattr(imported, "correct_answers")) == 2
+    assert len(getattr(imported, "incorrect_answers")) == 2
+    assert len(getattr(imported, "grading_cases")) == 1
+
+

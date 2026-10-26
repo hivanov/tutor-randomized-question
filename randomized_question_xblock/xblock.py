@@ -262,7 +262,21 @@ class RandomizedQuestionXBlock(XBlock):
 
     def _ensure_sampled_options(self) -> list[Option]:
         """Ensures options are sampled and stored in student user_state as Option models."""
-        if not self.sampled_options:
+        valid_texts = {
+            (opt.get("text", "") if isinstance(opt, dict) else str(opt)).strip()
+            for opt in list(self.correct_answers) + list(self.incorrect_answers)
+        }
+
+        # Invalidate if empty or if sampled options belong to an outdated/stale pool
+        is_stale = False
+        if self.sampled_options:
+            for opt in self.sampled_options:
+                opt_text = (opt.get("text", "") if isinstance(opt, dict) else str(opt)).strip()
+                if opt_text not in valid_texts:
+                    is_stale = True
+                    break
+
+        if not self.sampled_options or is_stale:
             seed = self._get_user_seed()
             self.attempt_seed = seed
             options = PoolSampler.sample_and_shuffle(
@@ -407,6 +421,24 @@ class RandomizedQuestionXBlock(XBlock):
                 attempts_remaining=0,
             ).model_dump()
 
+        if self.completed and self.score >= 1.0:
+            return StudentSubmitResponse(
+                success=False,
+                error="Problem already completed with full credit.",
+                attempts=self.attempts,
+                max_attempts=self.max_attempts,
+                attempts_remaining=max(0, self.max_attempts - self.attempts),
+            ).model_dump()
+
+        if self.completed:
+            return StudentSubmitResponse(
+                success=False,
+                error="This attempt has already been submitted. Please click 'Try New Attempt' to start a new attempt.",
+                attempts=self.attempts,
+                max_attempts=self.max_attempts,
+                attempts_remaining=max(0, self.max_attempts - self.attempts),
+            ).model_dump()
+
         try:
             payload = StudentSubmissionPayload.model_validate(data)
             selected_ids_set = set(payload.selected_ids)
@@ -516,3 +548,154 @@ class RandomizedQuestionXBlock(XBlock):
             max_attempts=self.max_attempts,
         )
         return resp.model_dump()
+
+    # -------------------------------------------------------------
+    # OLX Serialization & Deserialization
+    # -------------------------------------------------------------
+    @classmethod
+    def parse_xml(cls, node: Any, runtime: Any, keys: Any, id_generator: Any = None) -> "RandomizedQuestionXBlock":
+        """Parse XML when importing OLX courses."""
+        block: RandomizedQuestionXBlock = runtime.construct_xblock_from_class(cls, keys)
+
+        for name, value in list(node.items()):
+            if name in block.fields:
+                cls._set_field_if_present(block, name, value, {})
+
+        # Parse child elements
+        for child in node:
+            tag = child.tag.lower()
+            if tag == "prompt" and child.text and child.text.strip():
+                block.prompt = child.text.strip()
+            elif tag == "explanation" and child.text and child.text.strip():
+                block.explanation = child.text.strip()
+            elif tag == "correct_answers":
+                correct_items = []
+                for item in child:
+                    if item.tag.lower() == "item":
+                        text_elem = item.find("text")
+                        expl_elem = item.find("explanation")
+                        if text_elem is not None:
+                            text_val = (text_elem.text or "").strip()
+                            expl_val = (expl_elem.text if expl_elem is not None else "").strip()
+                        elif "text" in item.attrib:
+                            text_val = item.attrib.get("text", "").strip()
+                            expl_val = item.attrib.get("explanation", "").strip()
+                        else:
+                            text_val = (item.text or "").strip()
+                            expl_val = item.attrib.get("explanation", "").strip()
+                        if text_val:
+                            correct_items.append({"text": text_val, "explanation": expl_val})
+                if correct_items:
+                    block.correct_answers = correct_items
+            elif tag == "incorrect_answers":
+                incorrect_items = []
+                for item in child:
+                    if item.tag.lower() == "item":
+                        text_elem = item.find("text")
+                        expl_elem = item.find("explanation")
+                        if text_elem is not None:
+                            text_val = (text_elem.text or "").strip()
+                            expl_val = (expl_elem.text if expl_elem is not None else "").strip()
+                        elif "text" in item.attrib:
+                            text_val = item.attrib.get("text", "").strip()
+                            expl_val = item.attrib.get("explanation", "").strip()
+                        else:
+                            text_val = (item.text or "").strip()
+                            expl_val = item.attrib.get("explanation", "").strip()
+                        if text_val:
+                            incorrect_items.append({"text": text_val, "explanation": expl_val})
+                if incorrect_items:
+                    block.incorrect_answers = incorrect_items
+            elif tag == "grading_cases":
+                cases = []
+                for item in child:
+                    if item.tag.lower() == "item":
+                        cid = item.attrib.get("id", f"case_{len(cases)+1}")
+                        desc = item.attrib.get("description", "")
+                        ctype = item.attrib.get("condition_type", "all_correct")
+                        cval = item.attrib.get("condition_value", None)
+                        if cval is not None:
+                            try:
+                                cval = int(cval)
+                            except ValueError:
+                                pass
+                        max_w = int(item.attrib.get("max_wrong_allowed", 0))
+                        sf = float(item.attrib.get("score_fraction", 1.0))
+                        fb = item.attrib.get("feedback", "")
+                        cases.append({
+                            "id": cid,
+                            "description": desc,
+                            "condition_type": ctype,
+                            "condition_value": cval,
+                            "max_wrong_allowed": max_w,
+                            "score_fraction": sf,
+                            "feedback": fb,
+                        })
+                if cases:
+                    block.grading_cases = cases
+
+        return block
+
+    def add_xml_to_node(self, node: Any) -> None:
+        """Export XBlock settings to OLX XML node."""
+        import xml.etree.ElementTree as ET
+
+        node.tag = "randomized_question"
+        node.set("display_name", self.display_name or "Randomized Question")
+        node.set("prompt", self.prompt or "")
+        node.set("total_options_count", str(self.total_options_count))
+        node.set("correct_options_count", str(self.correct_options_count))
+        node.set("fail_on_any_wrong", "true" if self.fail_on_any_wrong else "false")
+        node.set("fail_if_not_all_correct", "true" if self.fail_if_not_all_correct else "false")
+        node.set("grading_default_score", str(self.grading_default_score))
+        node.set("weight", str(self.weight))
+        node.set("max_attempts", str(self.max_attempts))
+        node.set("show_correctness", self.show_correctness or "always")
+        node.set("explanation", self.explanation or "")
+
+        # Correct answers
+        correct_elem = ET.SubElement(node, "correct_answers")
+        ca_list = getattr(self, "correct_answers", []) or []
+        for ca in ca_list:  # type: ignore[union-attr]
+            item_elem = ET.SubElement(correct_elem, "item")
+            if isinstance(ca, dict):
+                item_elem.text = ca.get("text", "")
+                if ca.get("explanation"):
+                    item_elem.set("explanation", ca["explanation"])
+            elif isinstance(ca, AnswerChoice):
+                item_elem.text = ca.text
+                if ca.explanation:
+                    item_elem.set("explanation", ca.explanation)
+            else:
+                item_elem.text = str(ca)
+
+        # Incorrect answers
+        incorrect_elem = ET.SubElement(node, "incorrect_answers")
+        ia_list = getattr(self, "incorrect_answers", []) or []
+        for ia in ia_list:  # type: ignore[union-attr]
+            item_elem = ET.SubElement(incorrect_elem, "item")
+            if isinstance(ia, dict):
+                item_elem.text = ia.get("text", "")
+                if ia.get("explanation"):
+                    item_elem.set("explanation", ia["explanation"])
+            elif isinstance(ia, AnswerChoice):
+                item_elem.text = ia.text
+                if ia.explanation:
+                    item_elem.set("explanation", ia.explanation)
+            else:
+                item_elem.text = str(ia)
+
+        # Grading cases
+        cases_elem = ET.SubElement(node, "grading_cases")
+        gc_list = getattr(self, "grading_cases", []) or []
+        for gc in gc_list:  # type: ignore[union-attr]
+            item_elem = ET.SubElement(cases_elem, "item")
+            if isinstance(gc, dict):
+                item_elem.set("id", gc.get("id", "case_1"))
+                item_elem.set("description", gc.get("description", ""))
+                item_elem.set("condition_type", gc.get("condition_type", "all_correct"))
+                if gc.get("condition_value") is not None:
+                    item_elem.set("condition_value", str(gc.get("condition_value")))
+                item_elem.set("max_wrong_allowed", str(gc.get("max_wrong_allowed", 0)))
+                item_elem.set("score_fraction", str(gc.get("score_fraction", 1.0)))
+                item_elem.set("feedback", gc.get("feedback", ""))

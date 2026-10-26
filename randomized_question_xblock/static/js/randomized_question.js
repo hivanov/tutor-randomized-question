@@ -216,7 +216,7 @@ function RandomizedQuestionStudentView(runtime, element, initData) {
                 .attr('value', opt.id)
                 .prop('checked', isChecked);
 
-            if (data.attempts >= data.max_attempts && data.completed) {
+            if (isCompleted) {
                 $input.prop('disabled', true);
             }
 
@@ -252,7 +252,7 @@ function RandomizedQuestionStudentView(runtime, element, initData) {
             $item.append($input).append($contentWrapper);
 
             $item.on('click', function(e) {
-                if ($input.prop('disabled')) return;
+                if ($input.prop('disabled') || isCompleted) return;
                 if (!$(e.target).is('input') && !$(e.target).closest('.option-explanation-box').length) {
                     if (isSingle) {
                         $input.prop('checked', true).trigger('change');
@@ -277,15 +277,28 @@ function RandomizedQuestionStudentView(runtime, element, initData) {
         });
 
         // Submit / Reset buttons
-        if (data.attempts >= data.max_attempts) {
-            $el.find('.btn-submit').prop('disabled', true);
-            $el.find('.btn-reset').hide();
-        } else {
-            $el.find('.btn-submit').prop('disabled', false);
-            if (data.completed && data.attempts < data.max_attempts) {
-                $el.find('.btn-reset').show();
+        var $btnSubmit = $el.find('.btn-submit');
+        var $btnReset = $el.find('.btn-reset');
+
+        if (data.completed) {
+            $btnSubmit.prop('disabled', true);
+            if (data.raw_score_fraction >= 1.0) {
+                $btnSubmit.text('Submitted (100% Correct)');
+                $btnReset.hide();
+            } else if (data.attempts < data.max_attempts) {
+                $btnSubmit.text('Submitted');
+                $btnReset.show().prop('disabled', false).text('Try New Attempt');
             } else {
-                $el.find('.btn-reset').hide();
+                $btnSubmit.text('Final Attempt Submitted');
+                $btnReset.hide();
+            }
+        } else {
+            if (data.attempts >= data.max_attempts) {
+                $btnSubmit.prop('disabled', true).text('No Attempts Remaining');
+                $btnReset.hide();
+            } else {
+                $btnSubmit.prop('disabled', false).text('Submit Answer');
+                $btnReset.hide();
             }
         }
 

@@ -32,6 +32,7 @@ setup(
         ],
         "xblock.v1": [
             "randomized_question = randomized_question_xblock.xblock:RandomizedQuestionXBlock",
+            "randomized_question_xblock = randomized_question_xblock.xblock:RandomizedQuestionXBlock",
         ],
     },
     license="GPLv3",

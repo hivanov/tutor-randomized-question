@@ -21,6 +21,7 @@ randomized_question = "tutor_randomized_question.plugin"
 
 [project.entry-points."xblock.v1"]
 randomized_question = "randomized_question_xblock.xblock:RandomizedQuestionXBlock"
+randomized_question_xblock = "randomized_question_xblock.xblock:RandomizedQuestionXBlock"
 
 [tool.ruff]
 line-length = 120
