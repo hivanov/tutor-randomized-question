@@ -12,17 +12,18 @@ var RichTextRenderer = (function() {
             .replace(/'/g, '&#39;');
     }
 
-    var katexLoading = false;
-    var katexCallbacks = [];
+    var mathEngineLoading = false;
+    var pendingContainers = [];
 
-    function ensureKatex(callback) {
-        if (window.katex && window.katex.renderToString) {
+    function ensureMathEngine(callback) {
+        if (window.renderMathInElement || (window.katex && window.katex.renderToString) || window.MathJax) {
             if (callback) callback();
             return;
         }
-        if (callback) katexCallbacks.push(callback);
-        if (katexLoading) return;
-        katexLoading = true;
+
+        if (callback) pendingContainers.push(callback);
+        if (mathEngineLoading) return;
+        mathEngineLoading = true;
 
         if (!document.getElementById('rq-katex-css')) {
             var link = document.createElement('link');
@@ -32,18 +33,36 @@ var RichTextRenderer = (function() {
             document.head.appendChild(link);
         }
 
+        function loadAutoRender() {
+            if (!document.getElementById('rq-katex-autorender-js')) {
+                var autoScript = document.createElement('script');
+                autoScript.id = 'rq-katex-autorender-js';
+                autoScript.src = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js';
+                autoScript.onload = function() {
+                    flushPending();
+                };
+                document.head.appendChild(autoScript);
+            } else {
+                flushPending();
+            }
+        }
+
+        function flushPending() {
+            var cbs = pendingContainers.slice();
+            pendingContainers = [];
+            cbs.forEach(function(fn) {
+                try { fn(); } catch(e) {}
+            });
+        }
+
         if (!document.getElementById('rq-katex-js')) {
             var script = document.createElement('script');
             script.id = 'rq-katex-js';
             script.src = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js';
-            script.onload = function() {
-                var cbs = katexCallbacks.slice();
-                katexCallbacks = [];
-                cbs.forEach(function(fn) {
-                    try { fn(); } catch(e) {}
-                });
-            };
+            script.onload = loadAutoRender;
             document.head.appendChild(script);
+        } else {
+            loadAutoRender();
         }
     }
 
@@ -63,54 +82,6 @@ var RichTextRenderer = (function() {
         var keywords = /\b(def|class|return|if|else|elif|for|while|import|from|in|is|not|and|or|None|True|False|self|async|await|const|let|var|function|SELECT|FROM|WHERE|INSERT|UPDATE|DELETE|JOIN)\b/g;
         esc = esc.replace(keywords, '<span class="tok-keyword">$1</span>');
         return esc;
-    }
-
-    function renderFallbackMath(math, isDisplay) {
-        var out = escapeHtml(math.trim());
-        // \text{...}, \mathrm{...}, \mathbf{...}
-        out = out.replace(/\\(text|mathrm|mathbf|mathit)\{([^}]+)\}/g, '<span class="math-$1">$2</span>');
-        // Greek letters
-        out = out.replace(/\\alpha\b/g, '&alpha;').replace(/\\beta\b/g, '&beta;').replace(/\\gamma\b/g, '&gamma;')
-                 .replace(/\\delta\b/g, '&delta;').replace(/\\epsilon\b/g, '&epsilon;').replace(/\\theta\b/g, '&theta;')
-                 .replace(/\\lambda\b/g, '&lambda;').replace(/\\mu\b/g, '&mu;').replace(/\\pi\b/g, '&pi;')
-                 .replace(/\\sigma\b/g, '&sigma;').replace(/\\tau\b/g, '&tau;').replace(/\\omega\b/g, '&omega;')
-                 .replace(/\\Gamma\b/g, '&Gamma;').replace(/\\Delta\b/g, '&Delta;').replace(/\\Theta\b/g, '&Theta;')
-                 .replace(/\\Lambda\b/g, '&Lambda;').replace(/\\Sigma\b/g, '&Sigma;').replace(/\\Omega\b/g, '&Omega;');
-        // Operators & brackets
-        out = out.replace(/\\lceil\s*/g, '&lceil;').replace(/\\rceil\s*/g, '&rceil;');
-        out = out.replace(/\\lfloor\s*/g, '&lfloor;').replace(/\\rfloor\s*/g, '&rfloor;');
-        out = out.replace(/\\le(q)?\b/g, '&le;').replace(/\\ge(q)?\b/g, '&ge;');
-        out = out.replace(/\\ne(q)?\b/g, '&ne;').replace(/\\approx\b/g, '&asymp;');
-        out = out.replace(/\\times\b/g, '&times;').replace(/\\cdot\b/g, '&middot;');
-        out = out.replace(/\\pm\b/g, '&plusmn;');
-        out = out.replace(/\\sum\b/g, '&sum;').replace(/\\prod\b/g, '&prod;').replace(/\\int\b/g, '&int;');
-        out = out.replace(/\\infty\b/g, '&infin;');
-        out = out.replace(/\\in\b/g, '&isin;').replace(/\\notin\b/g, '&notin;');
-        out = out.replace(/\\(to|rightarrow)\b/g, '&rarr;');
-        out = out.replace(/\\(dots|cdots|ldots)\b/g, '&hellip;');
-        out = out.replace(/\\%/g, '%');
-        // Named functions
-        out = out.replace(/\\(log|ln|exp|max|min|lim|sin|cos|tan)\b/g, '<span class="math-op">$1</span>');
-        // Binomial \binom{n}{k}
-        out = out.replace(/\\binom\{([^}]+)\}\{([^}]+)\}/g, '<span class="math-binom"><span class="binom-top">$1</span><span class="binom-bot">$2</span></span>');
-        // Fractions \frac{a}{b}
-        out = out.replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '<span class="math-frac"><span class="math-num">$1</span><span class="math-den">$2</span></span>');
-        // Superscripts
-        out = out.replace(/\^{([^}]+)}/g, '<sup>$1</sup>').replace(/\^([a-zA-Z0-9+\-*])/g, '<sup>$1</sup>');
-        // Subscripts
-        out = out.replace(/_{([^}]+)}/g, '<sub>$1</sub>').replace(/_([a-zA-Z0-9+\-*])/g, '<sub>$1</sub>');
-        return out;
-    }
-
-    function renderMathToken(math, isDisplay) {
-        if (window.katex && window.katex.renderToString) {
-            try {
-                return window.katex.renderToString(math, { displayMode: isDisplay, throwOnError: false });
-            } catch (e) {
-                // fallback
-            }
-        }
-        return renderFallbackMath(math, isDisplay);
     }
 
     function parseMarkdown(text) {
@@ -144,8 +115,7 @@ var RichTextRenderer = (function() {
         processed = processed.replace(/\$\$([\s\S]*?)\$\$|\\\[([\s\S]*?)\\\]/g, function(match, m1, m2) {
             var math = (m1 !== undefined ? m1 : m2).trim();
             var placeholder = '§§§MATHBLOCK' + mathBlocks.length + '§§§';
-            var rendered = renderMathToken(math, true);
-            mathBlocks.push('<div class="math-display">' + rendered + '</div>');
+            mathBlocks.push('$$\n' + math + '\n$$');
             return placeholder;
         });
 
@@ -154,12 +124,11 @@ var RichTextRenderer = (function() {
             var math = (m1 !== undefined ? m1 : m2).trim();
             var leading = (m1 !== undefined && prefix) ? prefix : '';
             var placeholder = '§§§MATHINLINE' + mathInlines.length + '§§§';
-            var rendered = renderMathToken(math, false);
-            mathInlines.push('<span class="math-inline">' + rendered + '</span>');
+            mathInlines.push('$' + math + '$');
             return leading + placeholder;
         });
 
-        // 5. Bold & Italic (using character boundaries that never match §§§ tokens)
+        // 5. Bold & Italic formatting
         processed = processed
             .replace(/\*\*\*([^*\n]+)\*\*\*/g, '<strong><em>$1</em></strong>')
             .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
@@ -171,11 +140,11 @@ var RichTextRenderer = (function() {
         processed = processed.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
 
         // 7. Restore tokens in reverse order
-        mathInlines.forEach(function(html, i) {
-            processed = processed.replace('§§§MATHINLINE' + i + '§§§', html);
+        mathInlines.forEach(function(math, i) {
+            processed = processed.replace('§§§MATHINLINE' + i + '§§§', math);
         });
-        mathBlocks.forEach(function(html, i) {
-            processed = processed.replace('§§§MATHBLOCK' + i + '§§§', html);
+        mathBlocks.forEach(function(math, i) {
+            processed = processed.replace('§§§MATHBLOCK' + i + '§§§', math);
         });
         inlineCodes.forEach(function(codeHtml, i) {
             processed = processed.replace('§§§INLINECODE' + i + '§§§', codeHtml);
@@ -187,6 +156,48 @@ var RichTextRenderer = (function() {
         return processed;
     }
 
+    function typeset(container) {
+        if (!container) return;
+
+        // 1. KaTeX renderMathInElement
+        if (window.renderMathInElement) {
+            try {
+                window.renderMathInElement(container, {
+                    delimiters: [
+                        { left: '$$', right: '$$', display: true },
+                        { left: '\\[', right: '\\]', display: true },
+                        { left: '$', right: '$', display: false },
+                        { left: '\\(', right: '\\)', display: false }
+                    ],
+                    throwOnError: false
+                });
+                return;
+            } catch (e) {
+                // fall through
+            }
+        }
+
+        // 2. Open edX MathJax typesetting
+        if (window.MathJax) {
+            try {
+                if (window.MathJax.typesetPromise) {
+                    window.MathJax.typesetPromise([container]).catch(function(e) { /* ignore */ });
+                    return;
+                } else if (window.MathJax.Hub && window.MathJax.Hub.Queue) {
+                    window.MathJax.Hub.Queue(['Typeset', window.MathJax.Hub, container]);
+                    return;
+                }
+            } catch (err) {
+                // fall through
+            }
+        }
+
+        // 3. Fallback: ensure math engine loads and typeset
+        ensureMathEngine(function() {
+            typeset(container);
+        });
+    }
+
     function render(container, rawText) {
         if (!container) return;
         if (!rawText) {
@@ -194,33 +205,14 @@ var RichTextRenderer = (function() {
             return;
         }
 
-        container.setAttribute('data-raw-content', rawText);
         container.innerHTML = parseMarkdown(rawText);
-
-        ensureKatex(function() {
-            var raw = container.getAttribute('data-raw-content');
-            if (raw) {
-                container.innerHTML = parseMarkdown(raw);
-            }
-        });
-
-        // Additional MathJax typesetting hook if MathJax is present
-        if (window.MathJax) {
-            try {
-                if (window.MathJax.typesetPromise) {
-                    window.MathJax.typesetPromise([container]).catch(function(e) { /* ignore */ });
-                } else if (window.MathJax.Hub && window.MathJax.Hub.Queue) {
-                    window.MathJax.Hub.Queue(['Typeset', window.MathJax.Hub, container]);
-                }
-            } catch (err) {
-                // ignore
-            }
-        }
+        typeset(container);
     }
 
     return {
         render: render,
         parseMarkdown: parseMarkdown,
+        typeset: typeset,
         escapeHtml: escapeHtml
     };
 })();
