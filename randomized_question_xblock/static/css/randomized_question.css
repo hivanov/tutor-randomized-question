@@ -286,3 +286,52 @@
     line-height: 1.6;
     color: #2d3748;
 }
+
+/* Math typesetting rules */
+.randomized-question-block .math-inline {
+    font-style: normal;
+    padding: 0 2px;
+}
+
+.randomized-question-block .math-display {
+    margin: 12px 0;
+    text-align: center;
+    overflow-x: auto;
+}
+
+.randomized-question-block .math-text,
+.randomized-question-block .math-mathrm {
+    font-family: inherit;
+    font-style: normal;
+}
+
+.randomized-question-block .math-mathbf {
+    font-family: inherit;
+    font-weight: bold;
+    font-style: normal;
+}
+
+.randomized-question-block .math-op {
+    font-style: normal;
+    padding: 0 1px;
+}
+
+.randomized-question-block .math-frac {
+    display: inline-block;
+    vertical-align: middle;
+    text-align: center;
+    font-size: 0.9em;
+    padding: 0 2px;
+}
+
+.randomized-question-block .math-num {
+    display: block;
+    border-bottom: 1px solid currentColor;
+    padding-bottom: 1px;
+}
+
+.randomized-question-block .math-den {
+    display: block;
+    padding-top: 1px;
+}
+
